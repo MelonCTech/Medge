@@ -72,6 +72,7 @@ static void worker_process(mln_event_t *ev)
         mln_log(error, "init lang failed.\n");
         return;
     }
+    mln_lang_cache_set(lang);
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) {
         mln_log(error, "socketpair error.\n");
