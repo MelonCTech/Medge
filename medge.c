@@ -1088,7 +1088,7 @@ static int mln_get_response_body(mln_http_t *http, mln_lang_ctx_t *ctx)
         return -1;
     }
     var = mln_lang_set_member_search(mln_lang_var_val_get(var)->data.obj->members, &body);
-    if (var == NULL) goto gen;
+    if (var == NULL || mln_lang_var_val_type_get(var) == M_LANG_VAL_TYPE_NIL) goto gen;
 
     if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_STRING) {
         mln_log(error, "Invalid 'body' type of 'Resp'.\n");
