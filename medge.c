@@ -27,6 +27,7 @@ mln_s8ptr_t medge_listen_ip = medge_default_listen_ip;
 mln_u16_t medge_listen_port = 80;
 mln_conf_item_t framework_conf = {CONF_BOOL, .val.b=1};
 mln_conf_item_t threadmode_conf = {CONF_BOOL, .val.b=0};
+mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
 
 static void mln_parse_args(int argc, char *argv[]);
 static void mln_help(char *name);
@@ -40,7 +41,7 @@ static int mln_signal(mln_lang_t *lang);
 static int mln_clear(mln_lang_t *lang);
 static void mln_get_response_from_melang(mln_lang_ctx_t *ctx);
 static void mln_send(mln_event_t *ev, int fd, void *data);
-static int mln_http_send_body_handler(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
+static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
 static int mln_inject_vars(mln_http_t *http, mln_lang_ctx_t *ctx, mln_string_t *base_dir);
 static int mln_inject_request(mln_http_t *http, mln_lang_ctx_t *ctx);
 static int mln_inject_request_method(mln_http_t *http, mln_lang_ctx_t *ctx, mln_lang_object_t *obj);
@@ -55,6 +56,11 @@ static int mln_inject_response_version(mln_http_t *http, mln_lang_ctx_t *ctx, ml
 static int mln_inject_response_code(mln_http_t *http, mln_lang_ctx_t *ctx, mln_lang_object_t *obj);
 static int mln_inject_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx, mln_lang_object_t *obj);
 static int mln_inject_base_dir(mln_http_t *http, mln_lang_ctx_t *ctx, mln_string_t *base_dir);
+static int mln_get_response_version(mln_http_t *http, mln_lang_ctx_t *ctx);
+static int mln_get_response_code(mln_http_t *http, mln_lang_ctx_t *ctx);
+static int mln_get_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx);
+static int mln_get_response_headers_iterator_handler(mln_rbtree_node_t *node, void *udata);
+static int mln_get_response_body(mln_http_t *http, mln_lang_ctx_t *ctx);
 
 static void worker_process(mln_event_t *ev)
 {
@@ -267,8 +273,7 @@ static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_ch
     mln_sauto_t len, size = 0;
 
     if (mln_http_get_type(http) != M_HTTP_REQUEST) {
-        mln_log(error, "Not HTTP request.\n");
-        return M_HTTP_RET_ERROR;
+        return M_HTTP_RET_DONE;
     }
 
     cl_val = mln_http_get_field(http, &cl_key);
@@ -883,33 +888,291 @@ static int mln_clear(mln_lang_t *lang)
 static void mln_get_response_from_melang(mln_lang_ctx_t *ctx)
 {
     mln_http_t *http = mln_lang_ctx_data_get(ctx);
+    mln_tcp_conn_t *conn = mln_http_get_connection(http);
+
     mln_http_set_data(http, NULL);
-//@@@@@@@@@@@@@ fetch
-mln_log(debug, "1111111111111\n");
+
+    mln_http_reset(http);
+    mln_http_set_type(http, M_HTTP_RESPONSE);
+
+    if (mln_get_response_version(http, ctx) < 0) goto err;
+    if (mln_get_response_code(http, ctx) < 0) goto err;
+    if (mln_get_response_headers(http, ctx) < 0) goto err;
+    if (mln_get_response_body(http, ctx) < 0) goto err;
+
+    mln_event_fd_set(mln_lang_event_get(ctx->lang), mln_tcp_conn_get_fd(conn), M_EV_SEND|M_EV_APPEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
+
+    return;
+
+err:
+    mln_quit(mln_lang_event_get(ctx->lang), mln_tcp_conn_get_fd(conn), http);
 }
 
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+static int mln_get_response_version(mln_http_t *http, mln_lang_ctx_t *ctx)
+{
+    mln_lang_var_t *var;
+    mln_lang_symbol_node_t *sym;
+    mln_string_t resp = mln_string("Resp");
+    mln_string_t version = mln_string("version");
+    mln_string_t v1_0 = mln_string("HTTP/1.0");
+    mln_string_t v1_1 = mln_string("HTTP/1.1");
+
+    if ((sym = mln_lang_symbol_node_search(ctx, &resp, 0)) == NULL) {
+        mln_log(error, "Cannot find 'Resp' variable.\n");
+        return -1;
+    }
+    if (sym->type != M_LANG_SYMBOL_VAR) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = sym->data.var;
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_OBJECT) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = mln_lang_set_member_search(mln_lang_var_val_get(var)->data.obj->members, &version);
+    if (var == NULL) {
+        mln_log(error, "No 'version' in 'Resp'.\n");
+        return -1;
+    }
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_STRING) {
+        mln_log(error, "Invalid 'version' type of 'Resp'.\n");
+        return -1;
+    }
+
+    if (!mln_string_strcasecmp(mln_lang_var_val_get(var)->data.s, &v1_0)) {
+        mln_http_set_version(http, M_HTTP_VERSION_1_0);
+    } else if (!mln_string_strcasecmp(mln_lang_var_val_get(var)->data.s, &v1_1)) {
+        mln_http_set_version(http, M_HTTP_VERSION_1_1);
+    } else {
+        mln_log(error, "Unsupported version of 'Resp'.\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int mln_get_response_code(mln_http_t *http, mln_lang_ctx_t *ctx)
+{
+    mln_lang_var_t *var;
+    mln_lang_symbol_node_t *sym;
+    mln_string_t resp = mln_string("Resp");
+    mln_string_t code = mln_string("code");
+
+    if ((sym = mln_lang_symbol_node_search(ctx, &resp, 0)) == NULL) {
+        mln_log(error, "Cannot find 'Resp' variable.\n");
+        return -1;
+    }
+    if (sym->type != M_LANG_SYMBOL_VAR) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = sym->data.var;
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_OBJECT) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = mln_lang_set_member_search(mln_lang_var_val_get(var)->data.obj->members, &code);
+    if (var == NULL) {
+        mln_log(error, "No 'code' in 'Resp'.\n");
+        return -1;
+    }
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_INT) {
+        mln_log(error, "Invalid 'code' type of 'Resp'.\n");
+        return -1;
+    }
+
+    mln_http_set_status(http, mln_lang_var_val_get(var)->data.i);
+    return 0;
+}
+
+static int mln_get_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx)
+{
+    mln_lang_var_t *var;
+    mln_lang_symbol_node_t *sym;
+    mln_string_t resp = mln_string("Resp");
+    mln_string_t headers = mln_string("headers");
+
+    if ((sym = mln_lang_symbol_node_search(ctx, &resp, 0)) == NULL) {
+        mln_log(error, "Cannot find 'Resp' variable.\n");
+        return -1;
+    }
+    if (sym->type != M_LANG_SYMBOL_VAR) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = sym->data.var;
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_OBJECT) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = mln_lang_set_member_search(mln_lang_var_val_get(var)->data.obj->members, &headers);
+    if (var == NULL) {
+        mln_log(error, "No 'headers' in 'Resp'.\n");
+        return -1;
+    }
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_ARRAY) {
+        mln_log(error, "Invalid 'headers' type of 'Resp'.\n");
+        return -1;
+    }
+
+    if (mln_rbtree_iterate(mln_lang_var_val_get(var)->data.array->elems_key, mln_get_response_headers_iterator_handler, http) < 0)
+        return -1;
+    return 0;
+}
+
+static int mln_get_response_headers_iterator_handler(mln_rbtree_node_t *node, void *udata)
+{
+    mln_lang_array_elem_t *elem = (mln_lang_array_elem_t *)mln_rbtree_node_data(node);
+    mln_http_t *http = (mln_http_t *)udata;
+    mln_string_t v, *p;
+    mln_u8_t buf[1024] = {0};
+    int n;
+
+    if (mln_lang_var_val_type_get(elem->key) != M_LANG_VAL_TYPE_STRING) return 0;
+    if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_INT) {
+#if defined(WIN32)
+        n = snprintf(buf, sizeof(buf) - 1, "%I64d", mln_lang_var_val_get(elem->value)->data.i);
+#elif defined(i386) || defined(__arm__) || defined(__wasm__)
+        n = snprintf(buf, sizeof(buf) - 1, "%lld", mln_lang_var_val_get(elem->value)->data.i);
+#else
+        n = snprintf(buf, sizeof(buf) - 1, "%ld", mln_lang_var_val_get(elem->value)->data.i);
+#endif
+        mln_string_nset(&v, buf, n);
+        p = &v;
+    } else if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_REAL) {
+        n = snprintf(buf, sizeof(buf) - 1, "%f", mln_lang_var_val_get(elem->value)->data.f);
+        mln_string_nset(&v, buf, n);
+        p = &v;
+    } else if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_STRING) {
+        p = mln_lang_var_val_get(elem->value)->data.s;
+    } else {
+        return 0;
+    }
+
+    if (mln_http_set_field(http, mln_lang_var_val_get(elem->key)->data.s, p) < 0) {
+        mln_log(error, "No memory.\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int mln_get_response_body(mln_http_t *http, mln_lang_ctx_t *ctx)
+{
+    mln_lang_var_t *var;
+    mln_lang_symbol_node_t *sym;
+    mln_string_t resp = mln_string("Resp");
+    mln_string_t body = mln_string("body");
+    mln_chain_t *head = NULL, *tail = NULL;
+    mln_string_t cl_key = mln_string("Content-Length");
+    mln_string_t *cl_val;
+    mln_sauto_t len = 0;
+    mln_tcp_conn_t *conn = mln_http_get_connection(http);
+
+    cl_val = mln_http_get_field(http, &cl_key);
+    if (cl_val != NULL) {
+        len = (mln_sauto_t)atol(cl_val->data);
+    }
+
+    if ((sym = mln_lang_symbol_node_search(ctx, &resp, 0)) == NULL) {
+        mln_log(error, "Cannot find 'Resp' variable.\n");
+        return -1;
+    }
+    if (sym->type != M_LANG_SYMBOL_VAR) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = sym->data.var;
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_OBJECT) {
+        mln_log(error, "Invalid type of 'Resp'.\n");
+        return -1;
+    }
+    var = mln_lang_set_member_search(mln_lang_var_val_get(var)->data.obj->members, &body);
+    if (var == NULL) goto gen;
+
+    if (mln_lang_var_val_type_get(var) != M_LANG_VAL_TYPE_STRING) {
+        mln_log(error, "Invalid 'body' type of 'Resp'.\n");
+        return -1;
+    }
+
+    mln_http_set_handler(http, mln_pack_response_body);
+    mln_http_set_data(http, mln_lang_var_val_get(var)->data.s);
+
+gen:
+    if (var == NULL) {
+        if (len) {
+            mln_log(error, "Invalid 'body' length of 'Resp'.\n");
+            mln_http_set_data(http, NULL);
+            return -1;
+        }
+    } else {
+        if (len && len != mln_lang_var_val_get(var)->data.s->len) {
+            mln_log(error, "Invalid 'body' length of 'Resp'.\n");
+            mln_http_set_data(http, NULL);
+            return -1;
+        }
+    }
+
+    if (mln_http_generate(http, &head, &tail) == M_HTTP_RET_ERROR) {
+        mln_log(error, "Generate HTTP response failed. %u\n", mln_http_get_error(http));
+        mln_http_set_data(http, NULL);
+        return -1;
+    }
+    mln_http_set_data(http, NULL);
+
+    mln_tcp_conn_append_chain(conn, head, tail, M_C_SEND);
+    return 0;
+}
+
+static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail)
+{
+    mln_u8ptr_t buf;
+    mln_alloc_t *pool = mln_http_get_pool(http);
+    mln_string_t *body = (mln_string_t *)mln_http_get_data(http);
+
+    if (body == NULL || !body->len)
+        return M_HTTP_RET_DONE;
+
+    buf = (mln_u8ptr_t)mln_alloc_m(pool, body->len);
+    if (buf == NULL) {
+        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
+        return M_HTTP_RET_ERROR;
+    }
+    memcpy(buf, body->data, body->len);
+
+    mln_chain_t *c = mln_chain_new(pool);
+    if (c == NULL) {
+        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
+        return M_HTTP_RET_ERROR;
+    }
+    mln_buf_t *b = mln_buf_new(pool);
+    if (b == NULL) {
+        mln_chain_pool_release(c);
+        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
+        return M_HTTP_RET_ERROR;
+    }
+    c->buf = b;
+    b->left_pos = b->pos = b->start = buf;
+    b->last = b->end = buf + body->len;
+    b->in_memory = 1;
+    b->last_buf = 1;
+    b->last_in_chain = 1;
+
+    if (*body_head == NULL) {
+        *body_head = *body_tail = c;
+    } else {
+        (*body_tail)->next = c;
+        *body_tail = c;
+    }
+
+    return M_HTTP_RET_DONE;
+}
+
 static void mln_send(mln_event_t *ev, int fd, void *data)
 {
     mln_http_t *http = (mln_http_t *)data;
     mln_tcp_conn_t *connection = mln_http_get_connection(http);
     mln_chain_t *c = mln_tcp_conn_get_head(connection, M_C_SEND);
     int ret;
-
-    if (c == NULL) {
-        mln_http_reset(http);
-        mln_http_set_status(http, M_HTTP_OK);
-        mln_http_set_version(http, M_HTTP_VERSION_1_0);
-        mln_http_set_type(http, M_HTTP_RESPONSE);
-        mln_http_set_handler(http, mln_http_send_body_handler);
-        mln_chain_t *body_head = NULL, *body_tail = NULL;
-        if (mln_http_generate(http, &body_head, &body_tail) == M_HTTP_RET_ERROR) {
-            mln_log(error, "mln_http_generate() failed. %u\n", mln_http_get_error(http));
-            mln_quit(ev, fd, data);
-            return;
-        }
-        mln_tcp_conn_append_chain(connection, body_head, body_tail, M_C_SEND);
-    }
 
     while ((c = mln_tcp_conn_get_head(connection, M_C_SEND)) != NULL) {
         ret = mln_tcp_conn_send(connection);
@@ -928,60 +1191,6 @@ static void mln_send(mln_event_t *ev, int fd, void *data)
             abort();
         }
     }
-}
-
-static int mln_http_send_body_handler(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail)
-{
-    mln_u8ptr_t buf;
-    mln_alloc_t *pool = mln_http_get_pool(http);
-    mln_string_t cttype_key = mln_string("Content-Type");
-    mln_string_t cttype_val = mln_string("text/html");
-
-    buf = mln_alloc_m(pool, 5);
-    if (buf == NULL) {
-        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
-        return M_HTTP_RET_ERROR;
-    }
-    memcpy(buf, "hello", 5);
-
-    if (mln_http_set_field(http, &cttype_key, &cttype_val) == M_HTTP_RET_ERROR) {
-        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
-        return M_HTTP_RET_ERROR;
-    }
-
-    mln_string_t ctlen_key = mln_string("Content-Length");
-    mln_string_t ctlen_val = mln_string("5");
-    if (mln_http_set_field(http, &ctlen_key, &ctlen_val) == M_HTTP_RET_ERROR) {
-        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
-        return M_HTTP_RET_ERROR;
-    }
-
-    mln_chain_t *c = mln_chain_new(pool);
-    if (c == NULL) {
-        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
-        return M_HTTP_RET_ERROR;
-    }
-    mln_buf_t *b = mln_buf_new(pool);
-    if (b == NULL) {
-        mln_chain_pool_release(c);
-        mln_http_set_error(http, M_HTTP_INTERNAL_SERVER_ERROR);
-        return M_HTTP_RET_ERROR;
-    }
-    c->buf = b;
-    b->left_pos = b->pos = b->start = buf;
-    b->last = b->end = buf + 5;
-    b->in_memory = 1;
-    b->last_buf = 1;
-    b->last_in_chain = 1;
-
-    if (*body_head == NULL) {
-        *body_head = *body_tail = c;
-    } else {
-        (*body_tail)->next = c;
-        *body_tail = c;
-    }
-
-    return M_HTTP_RET_DONE;
 }
 
 static int mln_global_init(void)
@@ -1013,6 +1222,18 @@ static int mln_global_init(void)
         }
     }
 
+    cc = cd->search(cd, "worker_proc");
+    if (cc == NULL) {
+        if ((cc = cd->insert(cd, "worker_proc")) == NULL) {
+            mln_log(error, "insert configuration command 'worker_proc' failed.\n");
+            return -1;
+        }
+    }
+    if (cc->update(cc, &workerproc_conf, 1) < 0) {
+        mln_log(error, "update configuration command 'worker_proc' failed.\n");
+        return -1;
+    }
+
     return 0;
 }
 
@@ -1027,6 +1248,10 @@ static void mln_parse_args(int argc, char *argv[])
             if (++i >= argc) goto err;
             medge_listen_port = atoi(argv[i]);
             if (medge_listen_port <= 0) goto err;
+        } else if (!strcmp(argv[i], "-w")) {
+            if (++i >= argc) goto err;
+            workerproc_conf.val.i = atoi(argv[i]);
+            if (workerproc_conf.val.i <= 0) goto err;
         } else if (!strcmp(argv[i], "-d")) {
             if (++i >= argc) goto err;
             mln_string_set(&melang_base_dir_in_param, argv[i]);
@@ -1038,7 +1263,7 @@ static void mln_parse_args(int argc, char *argv[])
             mln_help(argv[0]);
         } else {
 err:
-            fprintf(stderr, "Invalid parameter.\n");
+            fprintf(stderr, "Invalid parameter [%s].\n", argv[i]);
             mln_help(argv[0]);
         }
     }
@@ -1051,6 +1276,7 @@ static void mln_help(char *name)
     fprintf(stdout, "%s OPTIONS\n", name);
     fprintf(stdout, "\t-a Listen address, 0.0.0.0 as default\n");
     fprintf(stdout, "\t-p Listen port, 80 as default\n");
+    fprintf(stdout, "\t-w Worker process number, 1 as default\n");
     fprintf(stdout, "\t-d Base directory path of entry script, /opt/medge/ as default\n");
     fprintf(stdout, "\t-v Show version\n");
     fprintf(stdout, "\t-h Show help information\n");
