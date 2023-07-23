@@ -153,9 +153,9 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
         len = sizeof(addr);
         connfd = accept(fd, (struct sockaddr *)&addr, &len);
         if (connfd < 0) {
-            if (errno == EAGAIN) break;
+            if (errno == EAGAIN || errno == EMFILE || errno == ENFILE) break;
             if (errno == EINTR) continue;
-            perror("accept");
+            mln_log(error, "accept error. %s\n", strerror(errno));
             exit(1);
         }
 
