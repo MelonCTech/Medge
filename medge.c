@@ -28,6 +28,7 @@ mln_u16_t medge_listen_port = 80;
 mln_conf_item_t framework_conf = {CONF_BOOL, .val.b=1};
 mln_conf_item_t threadmode_conf = {CONF_BOOL, .val.b=0};
 mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
+mln_u32_t medge_root_changed = 0;
 
 static void mln_parse_args(int argc, char *argv[]);
 static void mln_help(char *name);
@@ -67,6 +68,12 @@ static void worker_process(mln_event_t *ev)
     struct sockaddr_in addr;
     int val = 1;
     int listenfd;
+
+    if (chroot((char *)(melang_base_dir->data)) < 0) {
+        mln_log(warn, "Chroot failed, program will keep running.\n");
+    } else {
+        medge_root_changed = 1;
+    }
 
     if ((lang = mln_lang_new(ev, mln_signal, mln_clear)) == NULL) {
         mln_log(error, "init lang failed.\n");
@@ -318,7 +325,10 @@ static int mln_launch_melang(mln_event_t *ev, mln_http_t *http)
         return -1;
     }
 
-    n = snprintf(dir_path, sizeof(dir_path) - 1, "%s/%s", (char *)(melang_base_dir->data), (char *)(val->data));
+    if (medge_root_changed)
+        n = snprintf(dir_path, sizeof(dir_path) - 1, "/%s", (char *)(val->data));
+    else
+        n = snprintf(dir_path, sizeof(dir_path) - 1, "%s/%s", (char *)(melang_base_dir->data), (char *)(val->data));
     mln_string_nset(&dir, dir_path, n);
 
     n = snprintf(file_path, sizeof(file_path) - 1, "%s/entry.m", dir_path);
