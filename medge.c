@@ -29,6 +29,7 @@ mln_conf_item_t framework_conf = {CONF_BOOL, .val.b=1};
 mln_conf_item_t threadmode_conf = {CONF_BOOL, .val.b=0};
 mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
 mln_u32_t medge_root_changed = 0;
+mln_u32_t enable_chroot_flag = 0;
 
 static void mln_parse_args(int argc, char *argv[]);
 static void mln_help(char *name);
@@ -69,10 +70,12 @@ static void worker_process(mln_event_t *ev)
     int val = 1;
     int listenfd;
 
-    if (chroot((char *)(melang_base_dir->data)) < 0) {
-        mln_log(warn, "Chroot failed, program will keep running.\n");
-    } else {
-        medge_root_changed = 1;
+    if (!getuid() && enable_chroot_flag) {
+        if (chroot((char *)(melang_base_dir->data)) < 0) {
+            mln_log(warn, "Chroot failed, program will keep running.\n");
+        } else {
+            medge_root_changed = 1;
+        }
     }
 
     if ((lang = mln_lang_new(ev, mln_signal, mln_clear)) == NULL) {
@@ -1270,6 +1273,8 @@ static void mln_parse_args(int argc, char *argv[])
         } else if (!strcmp(argv[i], "-v")) {
             fprintf(stdout, "0.1.0\n");
             exit(0);
+        } else if (!strcmp(argv[i], "-D")) {
+            enable_chroot_flag = 1;
         } else if (!strcmp(argv[i], "-h")) {
             mln_help(argv[0]);
         } else {
@@ -1289,6 +1294,7 @@ static void mln_help(char *name)
     fprintf(stdout, "\t-p Listen port, 80 as default\n");
     fprintf(stdout, "\t-w Worker process number, 1 as default\n");
     fprintf(stdout, "\t-d Base directory path of entry script, /opt/medge/ as default\n");
+    fprintf(stdout, "\t-D Enable changing root directory. This parameter only work on user 'root'.\n");
     fprintf(stdout, "\t-v Show version\n");
     fprintf(stdout, "\t-h Show help information\n");
     exit(0);
