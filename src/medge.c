@@ -279,7 +279,6 @@ static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_ch
 {
     mln_string_t cl_key = mln_string("Content-Length");
     mln_string_t *cl_val;
-    mln_u32_t method = mln_http_get_method(http);
     mln_chain_t *c = *in;
     mln_sauto_t len, size = 0;
 
@@ -292,7 +291,7 @@ static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_ch
         return M_HTTP_RET_DONE;
     }
 
-    len = (mln_sauto_t)atol(cl_val->data);
+    len = (mln_sauto_t)atol((char *)(cl_val->data));
     if (!len) {
         return M_HTTP_RET_DONE;
     } else if (len < 0) {
@@ -701,7 +700,7 @@ static int mln_inject_request_body(mln_http_t *http, mln_lang_ctx_t *ctx, mln_la
     cl_val = mln_http_get_field(http, &cl_key);
     if (cl_val == NULL) return 0;
 
-    len = (mln_sauto_t)atol(cl_val->data);
+    len = (mln_sauto_t)atol((char *)(cl_val->data));
     if (!len) return 0;
     if (len < 0) {
         mln_log(error, "Invalid body length.\n");
@@ -1045,16 +1044,16 @@ static int mln_get_response_headers_iterator_handler(mln_rbtree_node_t *node, vo
     if (mln_lang_var_val_type_get(elem->key) != M_LANG_VAL_TYPE_STRING) return 0;
     if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_INT) {
 #if defined(WIN32)
-        n = snprintf(buf, sizeof(buf) - 1, "%I64d", mln_lang_var_val_get(elem->value)->data.i);
+        n = snprintf((char *)buf, sizeof(buf) - 1, "%I64d", mln_lang_var_val_get(elem->value)->data.i);
 #elif defined(i386) || defined(__arm__) || defined(__wasm__)
-        n = snprintf(buf, sizeof(buf) - 1, "%lld", mln_lang_var_val_get(elem->value)->data.i);
+        n = snprintf((char *)buf, sizeof(buf) - 1, "%lld", mln_lang_var_val_get(elem->value)->data.i);
 #else
-        n = snprintf(buf, sizeof(buf) - 1, "%ld", mln_lang_var_val_get(elem->value)->data.i);
+        n = snprintf((char *)buf, sizeof(buf) - 1, "%ld", mln_lang_var_val_get(elem->value)->data.i);
 #endif
         mln_string_nset(&v, buf, n);
         p = &v;
     } else if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_REAL) {
-        n = snprintf(buf, sizeof(buf) - 1, "%f", mln_lang_var_val_get(elem->value)->data.f);
+        n = snprintf((char *)buf, sizeof(buf) - 1, "%f", mln_lang_var_val_get(elem->value)->data.f);
         mln_string_nset(&v, buf, n);
         p = &v;
     } else if (mln_lang_var_val_type_get(elem->value) == M_LANG_VAL_TYPE_STRING) {
@@ -1084,7 +1083,7 @@ static int mln_get_response_body(mln_http_t *http, mln_lang_ctx_t *ctx)
 
     cl_val = mln_http_get_field(http, &cl_key);
     if (cl_val != NULL) {
-        len = (mln_sauto_t)atol(cl_val->data);
+        len = (mln_sauto_t)atol((char *)(cl_val->data));
     }
 
     if ((sym = mln_lang_symbol_node_search(ctx, &resp, 0)) == NULL) {
@@ -1211,7 +1210,6 @@ static int mln_global_init(void)
 {
     mln_conf_t *cf;
     mln_conf_domain_t *cd;
-    mln_conf_item_t *ci;
     mln_conf_cmd_t *cc;
 
     cf = mln_get_conf();

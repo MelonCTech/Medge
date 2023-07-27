@@ -1,3 +1,6 @@
 medge
 127.0.0.1:8080
 usr
+Makefile
+objs
+bin

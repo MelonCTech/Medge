@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+# Copyright (C) Niklaus F.Schen.
+#
+
+#  test system type
+sysname=`uname -s`
+path=/usr/bin/
+libpath=/usr/local/melon
+cc="cc"
+
+#installation path
+if ! case $sysname in MINGW*) false;; esac; then
+    echo "No support Windows"
+    exit 1
+fi
+
+#get all parameters
+for param in $@
+do
+    if [ $param == "--help" ]; then
+        echo -e "\nMelon platform."
+        echo "Copyright (C) Niklaus F.Schen."
+        echo "Options:"
+        echo -e "\t--prefix=INSTALL_PATH"
+        echo -e "\t--libprefix=INSTALLED_MELON_LIB_PATH"
+        echo -e "\t--cc=C compiler"
+        exit 0
+    fi
+    param_prefix=`echo $param|cut -d '=' -f 1`
+    param_suffix=`echo $param|cut -d '=' -f 2`
+    if [ $param_prefix == "--prefix" ]; then
+        path=$param_suffix
+    fi
+    if [ $param_prefix == "--cc" ]; then
+        cc=$param_suffix
+    fi
+done
+
+
+#  build makefile content
+echo "# " > Makefile
+echo "# Copyright (C) Niklaus F.Schen." >> Makefile
+echo "# " >> Makefile
+echo -e "CC\t\t= $cc" >> Makefile
+
+gccver=`gcc -dumpversion|cut -d '.' -f 1`
+if [ $sysname != 'Darwin' -a "$?" == "0" -a $gccver -ge 11 ]; then
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall -ggdb -Werror -O2 -fPIC" >> Makefile
+else
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall -ggdb -Werror -O3 -fPIC" >> Makefile
+fi
+
+echo -e "MEDGE\t\t= medge" >> Makefile
+
+echo -e "OBJS\t\t= \\" >> Makefile
+echo -e "\tobjs/medge.o" >> Makefile
+
+echo -e ".PHONY :\tcompile install clean" >> Makefile
+
+echo "compile: MKDIR \$(OBJS) \$(MEDGE)" >> Makefile
+
+echo "clean:" >> Makefile
+echo -e "\trm -fr objs bin Makefile" >> Makefile
+
+echo "MKDIR :" >> Makefile
+echo -e "\ttest -d objs || mkdir objs" >> Makefile
+echo -e "\ttest -d bin || mkdir bin" >> Makefile
+
+echo "\$(MEDGE) : \$(OBJS)" >> Makefile
+echo -e "\t\$(CC) -o bin/\$(MEDGE) \$(OBJS) -ggdb -Wall -Werror -L$libpath/lib -lmelon -I$libpath/include" >> Makefile
+
+echo "install:" >> Makefile
+echo -e "\ttest -d $path || mkdir -p $path" >> Makefile
+echo -e "\tcp -fr bin/medge $path/" >> Makefile
+
+for fname in `find . -name "*.c"`
+do
+    objname=`basename $fname | cut -d '.' -f 1`".o"
+    echo -n "objs/$objname :" >> Makefile
+    for header in `cpp -MM -MG $fname 2> /dev/null`
+    do
+        suffix=`echo $header | cut -d '.' -f 2`
+        if [ $suffix = 'c' ]; then
+            echo -n $header >> Makefile
+            echo -n " " >> Makefile
+            continue
+        fi
+        if [ $suffix != 'h' ]; then
+            continue
+        fi
+        test -e include/$header && echo -n "include/$header " >> Makefile
+    done
+    echo "" >> Makefile
+
+    echo -e "\t\$(CC) \$(FLAGS) -o \$@ $fname" >> Makefile
+done
+
+echo "Configure done!"
+
