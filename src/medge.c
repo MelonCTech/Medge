@@ -39,8 +39,8 @@ static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_ch
 static void mln_recv(mln_event_t *ev, int fd, void *data);
 static void mln_quit(mln_event_t *ev, int fd, void *data);
 static int mln_launch_melang(mln_event_t *ev, mln_http_t *http);
-static int mln_signal(mln_lang_t *lang);
-static int mln_clear(mln_lang_t *lang);
+static int mln_lang_signal(mln_lang_t *lang);
+static int mln_lang_clear(mln_lang_t *lang);
 static void mln_get_response_from_melang(mln_lang_ctx_t *ctx);
 static void mln_send(mln_event_t *ev, int fd, void *data);
 static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
@@ -61,10 +61,10 @@ static int mln_inject_base_dir(mln_http_t *http, mln_lang_ctx_t *ctx, mln_string
 static int mln_get_response_version(mln_http_t *http, mln_lang_ctx_t *ctx);
 static int mln_get_response_code(mln_http_t *http, mln_lang_ctx_t *ctx);
 static int mln_get_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx);
-static int mln_get_response_headers_iterator_handler(mln_rbtree_node_t *node, void *udata);
+static int mln_get_response_headers_iterator_cb(mln_rbtree_node_t *node, void *udata);
 static int mln_get_response_body(mln_http_t *http, mln_lang_ctx_t *ctx);
 
-static void worker_process(mln_event_t *ev)
+static void mln_worker_process(mln_event_t *ev)
 {
     struct sockaddr_in addr;
     int val = 1;
@@ -78,7 +78,7 @@ static void worker_process(mln_event_t *ev)
         }
     }
 
-    if ((lang = mln_lang_new(ev, mln_signal, mln_clear)) == NULL) {
+    if ((lang = mln_lang_new(ev, mln_lang_signal, mln_lang_clear)) == NULL) {
         mln_log(error, "init lang failed.\n");
         return;
     }
@@ -888,12 +888,12 @@ static int mln_inject_base_dir(mln_http_t *http, mln_lang_ctx_t *ctx, mln_string
     return 0;
 }
 
-static int mln_signal(mln_lang_t *lang)
+static int mln_lang_signal(mln_lang_t *lang)
 {
     return mln_event_fd_set(mln_lang_event_get(lang), fds[0], M_EV_SEND|M_EV_ONESHOT, M_EV_UNLIMITED, lang, mln_lang_launcher_get(lang));
 }
 
-static int mln_clear(mln_lang_t *lang)
+static int mln_lang_clear(mln_lang_t *lang)
 {
     return mln_event_fd_set(mln_lang_event_get(lang), fds[0], M_EV_CLR, M_EV_UNLIMITED, NULL, NULL);
 }
@@ -1028,12 +1028,12 @@ static int mln_get_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx)
         return -1;
     }
 
-    if (mln_rbtree_iterate(mln_lang_var_val_get(var)->data.array->elems_key, mln_get_response_headers_iterator_handler, http) < 0)
+    if (mln_rbtree_iterate(mln_lang_var_val_get(var)->data.array->elems_key, mln_get_response_headers_iterator_cb, http) < 0)
         return -1;
     return 0;
 }
 
-static int mln_get_response_headers_iterator_handler(mln_rbtree_node_t *node, void *udata)
+static int mln_get_response_headers_iterator_cb(mln_rbtree_node_t *node, void *udata)
 {
     mln_lang_array_elem_t *elem = (mln_lang_array_elem_t *)mln_rbtree_node_data(node);
     mln_http_t *http = (mln_http_t *)udata;
@@ -1309,7 +1309,7 @@ int main(int argc, char *argv[])
     cattr.global_init = mln_global_init;
     cattr.main_thread = NULL;
     cattr.master_process = NULL;
-    cattr.worker_process = worker_process;
+    cattr.worker_process = mln_worker_process;
     return mln_core_init(&cattr);
 }
 
