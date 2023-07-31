@@ -23,7 +23,7 @@ do
         echo "Copyright (C) Niklaus F.Schen."
         echo "Options:"
         echo -e "\t--prefix=INSTALL_PATH"
-        echo -e "\t--libprefix=INSTALLED_MELON_LIB_PATH"
+        echo -e "\t--libpath=INSTALLED_MELON_PATH"
         echo -e "\t--cc=C compiler"
         exit 0
     fi
@@ -31,6 +31,9 @@ do
     param_suffix=`echo $param|cut -d '=' -f 2`
     if [ $param_prefix == "--prefix" ]; then
         path=$param_suffix
+    fi
+    if [ $param_prefix == "--libpath" ]; then
+        libpath=$param_suffix
     fi
     if [ $param_prefix == "--cc" ]; then
         cc=$param_suffix

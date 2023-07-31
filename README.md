@@ -22,7 +22,7 @@ After that, please follow the commands given below:
 ```shell
 $ git clone https://github.com/Water-Melon/Medge.git
 $ cd Medge
-$ ./configure [--prefix=INSTALL_PATH] [--libprefix=MELON_INSTALL_PATH]
+$ ./configure [--prefix=INSTALL_PATH] [--libpath=INSTALLED_MELON_PATH]
 $ make
 $ make install
 ```

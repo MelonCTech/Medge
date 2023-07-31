@@ -25,8 +25,8 @@ mln_string_t melang_base_dir_in_param;
 mln_s8_t medge_default_listen_ip[] = "0.0.0.0";
 mln_s8ptr_t medge_listen_ip = medge_default_listen_ip;
 mln_u16_t medge_listen_port = 80;
-mln_conf_item_t framework_conf = {CONF_BOOL, .val.b=1};
-mln_conf_item_t threadmode_conf = {CONF_BOOL, .val.b=0};
+mln_string_t framework_mode = mln_string("multiprocess");
+mln_conf_item_t framework_conf = {CONF_STR, .val.s=&framework_mode};
 mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
 mln_u32_t medge_root_changed = 0;
 mln_u32_t enable_chroot_flag = 0;
@@ -1224,14 +1224,6 @@ static int mln_global_init(void)
     if (cc->update(cc, &framework_conf, 1) < 0) {
         mln_log(error, "update configuration command 'framework' failed.\n");
         return -1;
-    }
-
-    cc = cd->search(cd, "thread_mode");
-    if (cc != NULL) {
-        if (cc->update(cc, &threadmode_conf, 1) < 0) {
-            mln_log(error, "update configuration command 'thread_mode' failed.\n");
-            return -1;
-        }
     }
 
     cc = cd->search(cd, "worker_proc");
