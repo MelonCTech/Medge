@@ -695,7 +695,7 @@ static int mln_inject_request_body(mln_http_t *http, mln_lang_ctx_t *ctx, mln_la
     mln_u8ptr_t buf, p;
     mln_lang_var_t *var;
     mln_tcp_conn_t *conn = mln_http_get_connection(http);
-    mln_chain_t *c = mln_tcp_conn_get_head(conn, M_C_RECV);
+    mln_chain_t *c = mln_tcp_conn_head(conn, M_C_RECV);
 
     cl_val = mln_http_get_field(http, &cl_key);
     if (cl_val == NULL) return 0;
@@ -913,12 +913,12 @@ static void mln_get_response_from_melang(mln_lang_ctx_t *ctx)
     if (mln_get_response_headers(http, ctx) < 0) goto err;
     if (mln_get_response_body(http, ctx) < 0) goto err;
 
-    mln_event_fd_set(mln_lang_event_get(ctx->lang), mln_tcp_conn_get_fd(conn), M_EV_SEND|M_EV_APPEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
+    mln_event_fd_set(mln_lang_event_get(ctx->lang), mln_tcp_conn_fd_get(conn), M_EV_SEND|M_EV_APPEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
 
     return;
 
 err:
-    mln_quit(mln_lang_event_get(ctx->lang), mln_tcp_conn_get_fd(conn), http);
+    mln_quit(mln_lang_event_get(ctx->lang), mln_tcp_conn_fd_get(conn), http);
 }
 
 static int mln_get_response_version(mln_http_t *http, mln_lang_ctx_t *ctx)
@@ -1184,10 +1184,10 @@ static void mln_send(mln_event_t *ev, int fd, void *data)
 {
     mln_http_t *http = (mln_http_t *)data;
     mln_tcp_conn_t *connection = mln_http_get_connection(http);
-    mln_chain_t *c = mln_tcp_conn_get_head(connection, M_C_SEND);
+    mln_chain_t *c = mln_tcp_conn_head(connection, M_C_SEND);
     int ret;
 
-    while ((c = mln_tcp_conn_get_head(connection, M_C_SEND)) != NULL) {
+    while ((c = mln_tcp_conn_head(connection, M_C_SEND)) != NULL) {
         ret = mln_tcp_conn_send(connection);
         if (ret == M_C_FINISH) {
             mln_quit(ev, fd, data);
@@ -1212,7 +1212,7 @@ static int mln_global_init(void)
     mln_conf_domain_t *cd;
     mln_conf_cmd_t *cc;
 
-    cf = mln_get_conf();
+    cf = mln_conf();
     cd = cf->search(cf, "main");
     cc = cd->search(cd, "framework");
     if (cc == NULL) {
