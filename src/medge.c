@@ -244,6 +244,7 @@ static void mln_recv(mln_event_t *ev, int fd, void *data)
                 if (rc == M_HTTP_RET_OK) {
                     return;
                 } else if (rc == M_HTTP_RET_DONE) {
+                    mln_event_fd_set(ev, fd, M_EV_CLR, M_EV_UNLIMITED, NULL, NULL);
                     if (mln_launch_melang(ev, http) < 0) {
                         mln_quit(ev, fd, data);
                         return;
@@ -913,7 +914,7 @@ static void mln_get_response_from_melang(mln_lang_ctx_t *ctx)
     if (mln_get_response_headers(http, ctx) < 0) goto err;
     if (mln_get_response_body(http, ctx) < 0) goto err;
 
-    mln_event_fd_set(mln_lang_event_get(ctx->lang), mln_tcp_conn_fd_get(conn), M_EV_SEND|M_EV_APPEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
+    mln_event_fd_set(mln_lang_event_get(ctx->lang), mln_tcp_conn_fd_get(conn), M_EV_SEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
 
     return;
 
@@ -1035,7 +1036,7 @@ static int mln_get_response_headers(mln_http_t *http, mln_lang_ctx_t *ctx)
 
 static int mln_get_response_headers_iterator_cb(mln_rbtree_node_t *node, void *udata)
 {
-    mln_lang_array_elem_t *elem = (mln_lang_array_elem_t *)mln_rbtree_node_data(node);
+    mln_lang_array_elem_t *elem = (mln_lang_array_elem_t *)mln_rbtree_node_data_get(node);
     mln_http_t *http = (mln_http_t *)udata;
     mln_string_t v, *p;
     mln_u8_t buf[1024] = {0};
@@ -1194,7 +1195,6 @@ static void mln_send(mln_event_t *ev, int fd, void *data)
             break;
         } else if (ret == M_C_NOTYET) {
             mln_chain_pool_release_all(mln_tcp_conn_remove(connection, M_C_SENT));
-            mln_event_fd_set(ev, fd, M_EV_SEND|M_EV_APPEND|M_EV_NONBLOCK, M_EV_UNLIMITED, data, mln_send);
             return;
         } else if (ret == M_C_ERROR) {
             mln_quit(ev, fd, data);
