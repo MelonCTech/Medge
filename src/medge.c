@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
-#include "mln_core.h"
+#include "mln_framework.h"
 #include "mln_log.h"
 #include "mln_http.h"
 #include "mln_file.h"
@@ -1292,16 +1292,16 @@ static void mln_help(char *name)
 
 int main(int argc, char *argv[])
 {
-    struct mln_core_attr cattr;
+    struct mln_framework_attr attr;
 
     mln_parse_args(argc, argv);
 
-    cattr.argc = 0;
-    cattr.argv = NULL;
-    cattr.global_init = mln_global_init;
-    cattr.main_thread = NULL;
-    cattr.master_process = NULL;
-    cattr.worker_process = mln_worker_process;
-    return mln_core_init(&cattr);
+    attr.argc = 0;
+    attr.argv = NULL;
+    attr.global_init = mln_global_init;
+    attr.main_thread = NULL;
+    attr.master_process = NULL;
+    attr.worker_process = mln_worker_process;
+    return mln_framework_init(&attr);
 }
 

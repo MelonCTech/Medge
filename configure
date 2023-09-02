@@ -5,6 +5,7 @@
 
 #  test system type
 sysname=`uname -s`
+debug=0
 path=/usr/bin/
 libpath=/usr/local/melon
 cc="cc"
@@ -31,21 +32,32 @@ do
         echo -e "\t--prefix=INSTALL_PATH"
         echo -e "\t--melon-prefix=INSTALLED_MELON_PATH"
         echo -e "\t--cc=C compiler"
+        echo -e "\t--debug"
         exit 0
     fi
     param_prefix=`echo $param|cut -d '=' -f 1`
     param_suffix=`echo $param|cut -d '=' -f 2`
     if [ $param_prefix == "--prefix" ]; then
         path=$param_suffix
-    fi
-    if [ $param_prefix == "--melon-prefix" ]; then
+    elif [ $param_prefix == "--melon-prefix" ]; then
         libpath=$param_suffix
-    fi
-    if [ $param_prefix == "--cc" ]; then
+    elif [ $param_prefix == "--debug" ]; then
+        debug=1
+    elif [ $param_prefix == "--cc" ]; then
         cc=$param_suffix
     fi
 done
 
+#debug
+if [ $debug -ne 0 ]; then
+    if [ $wasm -eq 1 ]; then
+        debug='-g -D__DEBUG__'
+    else
+        debug='-ggdb -D__DEBUG__'
+    fi
+else
+    debug=''
+fi
 
 #  build makefile content
 echo "# " > Makefile
@@ -55,9 +67,9 @@ echo -e "CC\t\t= $cc" >> Makefile
 
 gccver=`gcc -dumpversion|cut -d '.' -f 1`
 if [ $sysname != 'Darwin' -a "$?" == "0" -a $gccver -ge 11 ]; then
-    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall -ggdb -Werror -O2 -fPIC" >> Makefile
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O2 -fPIC" >> Makefile
 else
-    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall -ggdb -Werror -O3 -fPIC" >> Makefile
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O3 -fPIC" >> Makefile
 fi
 
 echo -e "MEDGE\t\t= medge" >> Makefile
@@ -77,7 +89,7 @@ echo -e "\ttest -d objs || mkdir objs" >> Makefile
 echo -e "\ttest -d bin || mkdir bin" >> Makefile
 
 echo "\$(MEDGE) : \$(OBJS)" >> Makefile
-echo -e "\t\$(CC) -o bin/\$(MEDGE) \$(OBJS) -ggdb -Wall -Werror -L$libpath/lib -lmelon -I$libpath/include" >> Makefile
+echo -e "\t\$(CC) -o bin/\$(MEDGE) \$(OBJS) $debug -Wall -Werror -L$libpath/lib -lmelon -I$libpath/include" >> Makefile
 
 echo "install:" >> Makefile
 echo -e "\ttest -d $path || mkdir -p $path" >> Makefile
