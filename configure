@@ -50,11 +50,7 @@ done
 
 #debug
 if [ $debug -ne 0 ]; then
-    if [ $wasm -eq 1 ]; then
-        debug='-g -D__DEBUG__'
-    else
-        debug='-ggdb -D__DEBUG__'
-    fi
+    debug='-ggdb -D__DEBUG__'
 else
     debug=''
 fi
