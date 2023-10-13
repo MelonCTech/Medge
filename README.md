@@ -1,9 +1,9 @@
+<p align="center"><img src="" /></p>
 <p align="center"><img src="https://img.shields.io/github/license/Water-Melon/Melang" /></p>
-<h1 align="center">Medge</h1>
 
 
 
-Medge is an API HTTP Server.
+Medge is an HTTP API Server.
 
 API developers can use [Melang](https://melang.org/) to implement their API services and run in Medge.
 
