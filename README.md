@@ -5,11 +5,7 @@
 
 Medge is an HTTP API Server.
 
-API developers can use [Melang](https://melang.org/) to implement their API services and run in Medge.
-
-With the special features that Melang provide, Medge can processing all HTTP requests in a single thread. And make sure each request processing script task will be isolated as a preemptive scheduling co-routine. And in fact, Medge is a multi-process program.
-
-**Note**: This project is not production-ready yet. It is only support HTTP/1.0 and HTTP/1.1 without SSL or TLS.
+For more information such as purposes, features and limitations, please visit our [Wiki](https://github.com/Water-Melon/Medge/wiki/About-Medge).
 
 
 
@@ -25,6 +21,16 @@ $ cd Medge
 $ ./configure [--prefix=INSTALL_PATH] [--libpath=INSTALLED_MELON_PATH]
 $ make
 $ make install
+```
+
+
+
+### Docker
+
+You can pull the docker image.
+
+```shell
+docker pull melonc/medge
 ```
 
 
@@ -57,7 +63,7 @@ For example:
         |- ...
 ```
 
-This is the base directory tree. The base directory is `/opt/medge` in this example. And there are two API services named `service_1` and `service_2`. And there is a entry script file named `entry.m` in both of their directories.
+This is the base directory tree. The base directory is `/opt/medge` in this example. And there are two API services named `service_1` and `service_2`. And there is an entry script file named `entry.m` in both of their directories.
 
 `-D` is used to enable `chroot` system call. But if it is enabled, user has to solve directory problems manually.
 
@@ -71,12 +77,12 @@ The service base path is `/opt/medge`.
 
 ```
 |- /opt/medge/
-    |- 127.0.0.1:8080/
+    |- test.com/
         |- entry.m
         |- index.m
 ```
 
-`127.0.0.1:8080` is a directory. Because in Medge, HTTP host is used as service name.
+In Medge, HTTP host is used as the service directory name.
 
 ```
 //entry.m
@@ -110,9 +116,8 @@ str = Import('str');
 sys = Import('sys');
 
 uri = str.slice(Req.uri, '/');
-ctlr = str.capitalize(uri[0]);
-o = $ctlr;
-if (sys.has(o, uri[1]) != 'method') {
+uri && (ctlr = str.capitalize(uri[0]), o = $ctlr);
+if (!o || sys.has(o, uri[1]) != 'method') {
   Resp.code = 404;
 } else {
   o.__action__ = uri[1];
@@ -143,11 +148,11 @@ $ medge -p 8080 -d /opt/medge/ -w 1
 Then we send a HTTP request to Medge.
 
 ```shell
-$ curl -v http://127.0.0.1:8080/index/index
+$ curl -v -H "Host: test.com"  http://127.0.0.1:8080/index/index
 *   Trying 127.0.0.1:8080...
 * Connected to 127.0.0.1 (127.0.0.1) port 8080 (#0)
 > GET /index/index HTTP/1.1
-> Host: 127.0.0.1:8080
+> Host: test.com
 > User-Agent: curl/7.81.0
 > Accept: */*
 > 
@@ -162,6 +167,12 @@ $ curl -v http://127.0.0.1:8080/index/index
 
 
 
+### Collaboration
+
+If you are interested in this project and want to be the collaborator, please open an issue with the title **Collaborator** by the account that want to be invited.
+
+
+
 ### License
 
 [BSD-3-Clause License](https://github.com/Water-Melon/Melang/blob/master/LICENSE)
@@ -170,20 +181,9 @@ Copyright (c) 2014-present, Niklaus F. Schen
 
 
 
-
-### Docker
-
-You can pull the built container image.
-
-```shell
-docker pull melonc/medge
-```
-
-
-
 ### Contact
 
-Twitter: @MelangInc
+Twitter: [@MelonTechnology](https://twitter.com/MelonTechnology)
 
-QQ: 756582294
+QQ: [756582294](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=4e2GRrKLo6cz7kptaU_cUHhZ3JeHQT5b&authKey=ffV3ztGX3QAZP%2BRCnbdwAUETeT8O3VIxiIeyBch0DkvxAoM3J%2Bs3Ol1sZjcZwuto&noverify=0&group_code=756582294)
 
