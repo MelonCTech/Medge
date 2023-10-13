@@ -1,4 +1,4 @@
-<p align="center"><img src="" /></p>
+<p align="center"><img src="https://github.com/Water-Melon/Medge/blob/master/.misc/logo.png?raw=true" width="160px"/></p>
 <p align="center"><img src="https://img.shields.io/github/license/Water-Melon/Melang" /></p>
 
 
