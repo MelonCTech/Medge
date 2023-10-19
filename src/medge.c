@@ -557,6 +557,7 @@ static int mln_inject_request_args(mln_http_t *http, mln_lang_ctx_t *ctx, mln_la
 
         if ((dup = mln_string_pool_dup(ctx->pool, &key)) == NULL) {
             mln_log(error, "No memory.\n");
+            mln_string_slice_free(slices);
             return -1;
         }
         kvar.type = M_LANG_VAR_NORMAL;
