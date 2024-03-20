@@ -71,7 +71,12 @@ fi
 echo -e "MEDGE\t\t= medge" >> Makefile
 
 echo -e "OBJS\t\t= \\" >> Makefile
-echo -e "\tobjs/medge.o" >> Makefile
+for f in `find src -name "*.c"`
+do
+    prefix=`echo $f|cut -d '/' -f 2 | cut -d '.' -f 1`
+    echo -e "\tobjs/$prefix.o \\" >> Makefile
+done
+echo -e "\n" >> Makefile
 
 echo -e ".PHONY :\tcompile install clean" >> Makefile
 

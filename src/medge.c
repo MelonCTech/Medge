@@ -12,7 +12,6 @@
 #include "mln_log.h"
 #include "mln_file.h"
 #include "mln_conf.h"
-#include "mln_expr.h"
 #include "medge.h"
 
 mln_string_t default_file_name = mln_string("index");
@@ -29,10 +28,12 @@ mln_conf_item_t framework_conf = {CONF_STR, .val.s=&framework_mode};
 mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
 mln_u32_t root_changed = 0;
 mln_u32_t enable_chroot_flag = 0;
+mln_rbtree_t *funcs;
 
 static inline me_session_t *me_session_new(mln_tcp_conn_t *conn);
 static inline void me_session_free(me_session_t *s);
 static int me_symbol_cmp(me_symbol_t *sym1, me_symbol_t *sym2);
+static int me_func_cmp(me_func_t *f1, me_func_t *f2);
 
 static void mln_parse_args(int argc, char *argv[]);
 static void mln_help(char *name);
@@ -119,6 +120,11 @@ void me_symbol_free(me_symbol_t *sym)
 static int me_symbol_cmp(me_symbol_t *sym1, me_symbol_t *sym2)
 {
     return mln_string_strcmp(sym1->name, sym2->name);
+}
+
+static int me_func_cmp(me_func_t *f1, me_func_t *f2)
+{
+    return mln_string_strcmp(&(f1->name), &(f2->name));
 }
 
 
@@ -250,12 +256,13 @@ static void mln_quit(mln_event_t *ev, int fd, void *data)
 static mln_expr_val_t *mln_expr_callback(mln_string_t *name, int is_func, mln_array_t *args, void *data)
 {
     mln_rbtree_node_t *rn;
-    me_symbol_t *sym, tmp;
+    me_symbol_t *sym, tmp_sym;
+    me_func_t *f, tmp_func;
     me_session_t *se = (me_session_t *)data;
 
     if (!is_func) {
-        tmp.name = name;
-        rn = mln_rbtree_search(se->symbols, &tmp);
+        tmp_sym.name = name;
+        rn = mln_rbtree_search(se->symbols, &tmp_sym);
         if (mln_rbtree_null(rn, se->symbols)) {
             return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
         }
@@ -263,8 +270,13 @@ static mln_expr_val_t *mln_expr_callback(mln_string_t *name, int is_func, mln_ar
         return mln_expr_val_dup(sym->val);
     }
 
-    //TODO implement function call
-    return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
+    tmp_func.name = *name;
+    rn = mln_rbtree_search(funcs, &tmp_func);
+    if (mln_rbtree_null(rn, funcs)) {
+        return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
+    }
+    f = (me_func_t *)mln_rbtree_node_data_get(rn);
+    return f->func(se, name, args);
 }
 
 static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
@@ -537,11 +549,41 @@ static void mln_help(char *name)
     exit(0);
 }
 
+static int me_builtin_funcs_load(void)
+{
+    me_func_t *f;
+    struct mln_rbtree_attr rbattr;
+    mln_rbtree_node_t *rn;
+
+    rbattr.pool = NULL;
+    rbattr.pool_alloc = NULL;
+    rbattr.pool_free = NULL;
+    rbattr.cmp = (rbtree_cmp)me_func_cmp;
+    rbattr.data_free = NULL;
+    if ((funcs = mln_rbtree_new(&rbattr)) == NULL) {
+        return -1;
+    }
+
+    for (f = me_request_export(); f->func != NULL; ++f) {
+        if ((rn = mln_rbtree_node_new(funcs, f)) == NULL)
+            return -1;
+
+        mln_rbtree_insert(funcs, rn);
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     struct mln_framework_attr attr;
 
     mln_parse_args(argc, argv);
+
+    if (me_builtin_funcs_load() < 0) {
+        mln_log(error, "Load built-in functions failed.\n");
+        return -1;
+    }
 
     attr.argc = 0;
     attr.argv = NULL;
