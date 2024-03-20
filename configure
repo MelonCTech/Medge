@@ -63,9 +63,9 @@ echo -e "CC\t\t= $cc" >> Makefile
 
 gccver=`gcc -dumpversion|cut -d '.' -f 1`
 if [ $sysname != 'Darwin' -a "$?" == "0" -a $gccver -ge 11 ]; then
-    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O2 -fPIC" >> Makefile
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O2 -fPIC -Iinclude" >> Makefile
 else
-    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O3 -fPIC" >> Makefile
+    echo -e "FLAGS\t\t= -I$libpath/include -c -Wall $debug -Werror -O3 -fPIC -Iinclude" >> Makefile
 fi
 
 echo -e "MEDGE\t\t= medge" >> Makefile

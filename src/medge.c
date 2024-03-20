@@ -10,10 +10,10 @@
 #include <sys/time.h>
 #include "mln_framework.h"
 #include "mln_log.h"
-#include "mln_http.h"
 #include "mln_file.h"
 #include "mln_conf.h"
 #include "mln_expr.h"
+#include "medge.h"
 
 mln_string_t default_file_name = mln_string("index");
 mln_string_t *file_name_ptr = &default_file_name;
@@ -30,6 +30,10 @@ mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
 mln_u32_t root_changed = 0;
 mln_u32_t enable_chroot_flag = 0;
 
+static inline me_session_t *me_session_new(mln_tcp_conn_t *conn);
+static inline void me_session_free(me_session_t *s);
+static int me_symbol_cmp(me_symbol_t *sym1, me_symbol_t *sym2);
+
 static void mln_parse_args(int argc, char *argv[]);
 static void mln_help(char *name);
 static int mln_global_init(void);
@@ -39,6 +43,84 @@ static void mln_recv(mln_event_t *ev, int fd, void *data);
 static void mln_quit(mln_event_t *ev, int fd, void *data);
 static void mln_send(mln_event_t *ev, int fd, void *data);
 static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
+
+static inline me_session_t *me_session_new(mln_tcp_conn_t *conn)
+{
+    struct mln_rbtree_attr rbattr;
+    me_session_t *s;
+    mln_alloc_t *pool = mln_tcp_conn_pool_get(conn);
+
+    if ((s = (me_session_t *)mln_alloc_m(pool, sizeof(me_session_t))) == NULL) {
+        return NULL;
+    }
+
+    if ((s->req = mln_http_init(conn, NULL, mln_http_recv_body_handler)) == NULL) {
+        mln_alloc_free(s);
+        return NULL;
+    }
+    if ((s->resp = mln_http_init(conn, NULL, mln_pack_response_body)) == NULL) {
+        mln_http_destroy(s->req);
+        mln_alloc_free(s);
+        return NULL;
+    }
+    mln_http_type_set(s->resp, M_HTTP_RESPONSE);
+
+    rbattr.pool = pool;
+    rbattr.pool_alloc = (rbtree_pool_alloc_handler)mln_alloc_m;
+    rbattr.pool_free = (rbtree_pool_free_handler)mln_alloc_free;
+    rbattr.cmp = (rbtree_cmp)me_symbol_cmp;
+    rbattr.data_free = (rbtree_free_data)me_symbol_free;
+    if ((s->symbols = mln_rbtree_new(&rbattr)) == NULL) {
+        mln_http_destroy(s->resp);
+        mln_http_destroy(s->req);
+        mln_alloc_free(s);
+        return NULL;
+    }
+
+    return s;
+}
+
+static inline void me_session_free(me_session_t *s)
+{
+    if (s == NULL) return;
+
+    if (s->req != NULL) {
+        mln_string_free(mln_http_data_get(s->req));
+        mln_http_destroy(s->req);
+    }
+    if (s->resp != NULL) {
+        mln_string_free(mln_http_data_get(s->resp));
+        mln_http_destroy(s->resp);
+    }
+    if (s->symbols != NULL) mln_rbtree_free(s->symbols);
+    mln_alloc_free(s);
+}
+
+me_symbol_t *me_symbol_new(mln_string_t *name, mln_expr_val_t *val)
+{
+    me_symbol_t *sym;
+    if ((sym = (me_symbol_t *)malloc(sizeof(me_symbol_t))) == NULL)
+        return NULL;
+
+    sym->name = mln_string_ref(name);
+    sym->val = val;
+    return sym;
+}
+
+void me_symbol_free(me_symbol_t *sym)
+{
+    if (sym == NULL) return;
+
+    if (sym->name != NULL) mln_string_free(sym->name);
+    if (sym->val != NULL) mln_expr_val_free(sym->val);
+    free(sym);
+}
+
+static int me_symbol_cmp(me_symbol_t *sym1, me_symbol_t *sym2)
+{
+    return mln_string_strcmp(sym1->name, sym2->name);
+}
+
 
 static void mln_worker_process(mln_event_t *ev)
 {
@@ -99,7 +181,7 @@ static void mln_worker_process(mln_event_t *ev)
 static void mln_accept(mln_event_t *ev, int fd, void *data)
 {
     mln_tcp_conn_t *connection;
-    mln_http_t *http;
+    me_session_t *se;
     int connfd;
     socklen_t len;
     struct sockaddr_in addr;
@@ -128,8 +210,7 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
             continue;
         }
 
-        http = mln_http_init(connection, NULL, mln_http_recv_body_handler);
-        if (http == NULL) {
+        if ((se = me_session_new(connection)) == NULL) {
             mln_log(error, "No memory.\n");
             mln_tcp_conn_destroy(connection);
             free(connection);
@@ -141,11 +222,11 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
                              connfd, \
                              M_EV_RECV|M_EV_NONBLOCK, \
                              M_EV_UNLIMITED, \
-                             http, \
+                             se, \
                              mln_recv) < 0)
         {
             mln_log(error, "No memory.\n");
-            mln_http_destroy(http);
+            me_session_free(se);
             mln_tcp_conn_destroy(connection);
             free(connection);
             close(connfd);
@@ -156,15 +237,11 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
 
 static void mln_quit(mln_event_t *ev, int fd, void *data)
 {
-    mln_http_t *http = (mln_http_t *)data;
-    mln_http_t *resp = mln_http_data_get(http);
-    mln_string_t *body = resp == NULL? NULL: mln_http_data_get(resp);
-    mln_tcp_conn_t *connection = mln_http_connection_get(http);
+    me_session_t *se = (me_session_t *)data;
+    mln_tcp_conn_t *connection = mln_http_connection_get(se->req);
 
     mln_event_fd_set(ev, fd, M_EV_CLR, M_EV_UNLIMITED, NULL, NULL);
-    mln_string_free(body);
-    mln_http_destroy(resp);
-    mln_http_destroy(http);
+    me_session_free(se);
     mln_tcp_conn_destroy(connection);
     free(connection);
     close(fd);
@@ -172,54 +249,56 @@ static void mln_quit(mln_event_t *ev, int fd, void *data)
 
 static mln_expr_val_t *mln_expr_callback(mln_string_t *name, int is_func, mln_array_t *args, void *data)
 {
-//@@@@@@@@@@@@@@@@ code in this function is for debugging, should be removed
-    mln_http_t *http = (mln_http_t *)data;
-    mln_string_t tmp = mln_string("OK"), *dup;
+    mln_rbtree_node_t *rn;
+    me_symbol_t *sym, tmp;
+    me_session_t *se = (me_session_t *)data;
 
-    if ((dup = mln_string_dup(&tmp)) == NULL) return NULL;
-    mln_http_data_set(http, dup);
+    if (!is_func) {
+        tmp.name = name;
+        rn = mln_rbtree_search(se->symbols, &tmp);
+        if (mln_rbtree_null(rn, se->symbols)) {
+            return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
+        }
+        sym = (me_symbol_t *)mln_rbtree_node_data_get(rn);
+        return mln_expr_val_dup(sym->val);
+    }
+
+    //TODO implement function call
     return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
 }
 
-static void mln_send_response(mln_event_t *ev, int fd, mln_http_t *http)
+static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
 {
     int n;
     char filepath[1024];
     mln_string_t path;
     mln_expr_val_t *v;
-    mln_http_t *resp;
     mln_chain_t *head = NULL, *tail = NULL;
-    mln_tcp_conn_t *conn = mln_http_connection_get(http);
-
-    resp = mln_http_init(conn, NULL, mln_http_recv_body_handler);
-    if (resp == NULL) goto err;
-    mln_http_data_set(http, resp);
-    mln_http_type_set(resp, M_HTTP_RESPONSE);
-    mln_http_handler_set(resp, mln_pack_response_body);
+    mln_tcp_conn_t *conn = mln_http_connection_get(se->resp);
 
     n = snprintf(filepath, sizeof(filepath) - 1, "%s/%s", (char *)(base_dir_ptr->data), (char *)(file_name_ptr->data));
     filepath[n] = 0;
     mln_string_nset(&path, filepath, n);
-    if ((v = mln_expr_run_file(&path, mln_expr_callback, resp)) == NULL) {
-err:
-        mln_http_status_set(resp, M_HTTP_INTERNAL_SERVER_ERROR);
+    if ((v = mln_expr_run_file(&path, mln_expr_callback, se)) == NULL) {
+        mln_http_status_set(se->resp, M_HTTP_INTERNAL_SERVER_ERROR);
     } else {
         mln_expr_val_free(v);
     }
 
-    if (mln_http_generate(resp, &head, &tail) == M_HTTP_RET_ERROR) {
-        mln_log(error, "Generate HTTP response failed. %u\n", mln_http_error_get(http));
-        mln_quit(ev, fd, http);
+    if (mln_http_generate(se->resp, &head, &tail) == M_HTTP_RET_ERROR) {
+        mln_log(error, "Generate HTTP response failed. %u\n", mln_http_error_get(se->resp));
+        mln_quit(ev, fd, se);
         return;
     }
     mln_tcp_conn_append_chain(conn, head, tail, M_C_SEND);
 
-    mln_event_fd_set(ev, fd, M_EV_SEND|M_EV_NONBLOCK, M_EV_UNLIMITED, http, mln_send);
+    mln_event_fd_set(ev, fd, M_EV_SEND|M_EV_NONBLOCK, M_EV_UNLIMITED, se, mln_send);
 }
 
 static void mln_recv(mln_event_t *ev, int fd, void *data)
 {
-    mln_http_t *http = (mln_http_t *)data;
+    me_session_t *se = (me_session_t *)data;
+    mln_http_t *http = se->req;
     mln_tcp_conn_t *connection = mln_http_connection_get(http);
     int ret, rc;
     mln_chain_t *c;
@@ -238,7 +317,7 @@ static void mln_recv(mln_event_t *ev, int fd, void *data)
                 if (rc == M_HTTP_RET_OK) {
                     return;
                 } else if (rc == M_HTTP_RET_DONE) {
-                    mln_send_response(ev, fd, http);
+                    mln_send_response(ev, fd, se);
                 } else {
                     mln_log(error, "Http parse error. error_code:%u\n", mln_http_error_get(http));
                     mln_quit(ev, fd, data);
@@ -345,7 +424,8 @@ static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln
 
 static void mln_send(mln_event_t *ev, int fd, void *data)
 {
-    mln_http_t *http = (mln_http_t *)data;
+    me_session_t *se = (me_session_t *)data;
+    mln_http_t *http = se->resp;
     mln_tcp_conn_t *connection = mln_http_connection_get(http);
     mln_chain_t *c = mln_tcp_conn_head(connection, M_C_SEND);
     int ret;
