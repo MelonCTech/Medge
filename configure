@@ -94,6 +94,7 @@ echo -e "\t\$(CC) -o bin/\$(MEDGE) \$(OBJS) $debug -Wall -Werror -L$libpath/lib 
 
 echo "install:" >> Makefile
 echo -e "\ttest -d $path || mkdir -p $path" >> Makefile
+echo -e "\ttest -d /opt/medge || mkdir -p /opt/medge && cp example/* /opt/medge/" >> Makefile
 echo -e "\tcp -fr bin/medge $path/" >> Makefile
 
 for fname in `find . -name "*.c"`
