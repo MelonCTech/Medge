@@ -14,36 +14,36 @@
 #include "mln_conf.h"
 #include "medge.h"
 
-mln_string_t default_file_name = mln_string("index");
-mln_string_t *file_name_ptr = &default_file_name;
-mln_string_t default_base_dir = mln_string("/opt/medge/");
-mln_string_t *base_dir_ptr = &default_base_dir;
-mln_string_t base_dir_in_param;
-mln_string_t file_name_in_param;
-mln_s8_t default_listen_ip[] = "0.0.0.0";
-mln_s8ptr_t listen_ip_ptr = default_listen_ip;
-mln_u16_t listen_port = 80;
-mln_string_t framework_mode = mln_string("multiprocess");
-mln_conf_item_t framework_conf = {CONF_STR, .val.s=&framework_mode};
-mln_conf_item_t workerproc_conf = {CONF_INT, .val.i=1};
-mln_u32_t root_changed = 0;
-mln_u32_t enable_chroot_flag = 0;
-mln_rbtree_t *funcs;
+mln_string_t me_default_entry_file_name = mln_string("index");
+mln_string_t *me_entry_file_name_ptr = &me_default_entry_file_name;
+mln_string_t me_default_entry_base_dir = mln_string("/opt/medge/");
+mln_string_t *me_entry_base_dir_ptr = &me_default_entry_base_dir;
+mln_string_t me_entry_base_dir_in_param;
+mln_string_t me_entry_file_name_in_param;
+mln_s8_t me_default_listen_ip[] = "0.0.0.0";
+mln_s8ptr_t me_listen_ip_ptr = me_default_listen_ip;
+mln_u16_t me_listen_port = 80;
+mln_string_t me_framework_mode = mln_string("multiprocess");
+mln_conf_item_t me_framework_conf = {CONF_STR, .val.s=&me_framework_mode};
+mln_conf_item_t me_workerproc_conf = {CONF_INT, .val.i=1};
+mln_u32_t me_root_changed = 0;
+mln_u32_t me_enable_chroot_flag = 0;
+mln_rbtree_t *me_funcs;
 
 static inline me_session_t *me_session_new(mln_tcp_conn_t *conn);
 static inline void me_session_free(me_session_t *s);
 static int me_symbol_cmp(me_symbol_t *sym1, me_symbol_t *sym2);
 static int me_func_cmp(me_func_t *f1, me_func_t *f2);
 
-static void mln_parse_args(int argc, char *argv[]);
-static void mln_help(char *name);
-static int mln_global_init(void);
-static void mln_accept(mln_event_t *ev, int fd, void *data);
-static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_chain_t **nil);
-static void mln_recv(mln_event_t *ev, int fd, void *data);
-static void mln_quit(mln_event_t *ev, int fd, void *data);
-static void mln_send(mln_event_t *ev, int fd, void *data);
-static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
+static void me_parse_args(int argc, char *argv[]);
+static void me_help(char *name);
+static int me_global_init(void);
+static void me_accept(mln_event_t *ev, int fd, void *data);
+static int me_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_chain_t **nil);
+static void me_recv(mln_event_t *ev, int fd, void *data);
+static void me_quit(mln_event_t *ev, int fd, void *data);
+static void me_send(mln_event_t *ev, int fd, void *data);
+static int me_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail);
 
 static inline me_session_t *me_session_new(mln_tcp_conn_t *conn)
 {
@@ -55,11 +55,11 @@ static inline me_session_t *me_session_new(mln_tcp_conn_t *conn)
         return NULL;
     }
 
-    if ((s->req = mln_http_init(conn, NULL, mln_http_recv_body_handler)) == NULL) {
+    if ((s->req = mln_http_init(conn, NULL, me_http_recv_body_handler)) == NULL) {
         mln_alloc_free(s);
         return NULL;
     }
-    if ((s->resp = mln_http_init(conn, NULL, mln_pack_response_body)) == NULL) {
+    if ((s->resp = mln_http_init(conn, NULL, me_pack_response_body)) == NULL) {
         mln_http_destroy(s->req);
         mln_alloc_free(s);
         return NULL;
@@ -128,17 +128,17 @@ static int me_func_cmp(me_func_t *f1, me_func_t *f2)
 }
 
 
-static void mln_worker_process(mln_event_t *ev)
+static void me_worker_process(mln_event_t *ev)
 {
     struct sockaddr_in addr;
     int val = 1;
     int listenfd;
 
-    if (!getuid() && enable_chroot_flag) {
-        if (chroot((char *)(base_dir_ptr->data)) < 0) {
+    if (!getuid() && me_enable_chroot_flag) {
+        if (chroot((char *)(me_entry_base_dir_ptr->data)) < 0) {
             mln_log(warn, "Chroot failed, program will keep running.\n");
         } else {
-            root_changed = 1;
+            me_root_changed = 1;
         }
     }
 
@@ -158,8 +158,8 @@ static void mln_worker_process(mln_event_t *ev)
         return;
     }
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(listen_port);
-    addr.sin_addr.s_addr = inet_addr(listen_ip_ptr);
+    addr.sin_port = htons(me_listen_port);
+    addr.sin_addr.s_addr = inet_addr(me_listen_ip_ptr);
     if (bind(listenfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         mln_log(error, "bind error\n");
         mln_socket_close(listenfd);
@@ -176,7 +176,7 @@ static void mln_worker_process(mln_event_t *ev)
                          M_EV_RECV|M_EV_NONBLOCK, \
                          M_EV_UNLIMITED, \
                          NULL, \
-                         mln_accept) < 0)
+                         me_accept) < 0)
     {
         mln_log(error, "listen sock set event error\n");
         mln_socket_close(listenfd);
@@ -184,7 +184,7 @@ static void mln_worker_process(mln_event_t *ev)
     }
 }
 
-static void mln_accept(mln_event_t *ev, int fd, void *data)
+static void me_accept(mln_event_t *ev, int fd, void *data)
 {
     mln_tcp_conn_t *connection;
     me_session_t *se;
@@ -229,7 +229,7 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
                              M_EV_RECV|M_EV_NONBLOCK, \
                              M_EV_UNLIMITED, \
                              se, \
-                             mln_recv) < 0)
+                             me_recv) < 0)
         {
             mln_log(error, "No memory.\n");
             me_session_free(se);
@@ -241,7 +241,7 @@ static void mln_accept(mln_event_t *ev, int fd, void *data)
     }
 }
 
-static void mln_quit(mln_event_t *ev, int fd, void *data)
+static void me_quit(mln_event_t *ev, int fd, void *data)
 {
     me_session_t *se = (me_session_t *)data;
     mln_tcp_conn_t *connection = mln_http_connection_get(se->req);
@@ -271,15 +271,15 @@ static mln_expr_val_t *mln_expr_callback(mln_string_t *name, int is_func, mln_ar
     }
 
     tmp_func.name = *name;
-    rn = mln_rbtree_search(funcs, &tmp_func);
-    if (mln_rbtree_null(rn, funcs)) {
+    rn = mln_rbtree_search(me_funcs, &tmp_func);
+    if (mln_rbtree_null(rn, me_funcs)) {
         return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
     }
     f = (me_func_t *)mln_rbtree_node_data_get(rn);
     return f->func(se, args);
 }
 
-static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
+static void me_send_response(mln_event_t *ev, int fd, me_session_t *se)
 {
     int n;
     char filepath[1024];
@@ -289,7 +289,7 @@ static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
     mln_tcp_conn_t *conn = mln_http_connection_get(se->resp);
 
     mln_http_version_set(se->resp, mln_http_version_get(se->req));
-    n = snprintf(filepath, sizeof(filepath) - 1, "%s/%s", (char *)(base_dir_ptr->data), (char *)(file_name_ptr->data));
+    n = snprintf(filepath, sizeof(filepath) - 1, "%s/%s", (char *)(me_entry_base_dir_ptr->data), (char *)(me_entry_file_name_ptr->data));
     filepath[n] = 0;
     mln_string_nset(&path, filepath, n);
     if ((v = mln_expr_run_file(&path, mln_expr_callback, se)) == NULL) {
@@ -300,15 +300,15 @@ static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
 
     if (mln_http_generate(se->resp, &head, &tail) == M_HTTP_RET_ERROR) {
         mln_log(error, "Generate HTTP response failed. %u\n", mln_http_error_get(se->resp));
-        mln_quit(ev, fd, se);
+        me_quit(ev, fd, se);
         return;
     }
     mln_tcp_conn_append_chain(conn, head, tail, M_C_SEND);
 
-    mln_event_fd_set(ev, fd, M_EV_SEND|M_EV_NONBLOCK, M_EV_UNLIMITED, se, mln_send);
+    mln_event_fd_set(ev, fd, M_EV_SEND|M_EV_NONBLOCK, M_EV_UNLIMITED, se, me_send);
 }
 
-static void mln_recv(mln_event_t *ev, int fd, void *data)
+static void me_recv(mln_event_t *ev, int fd, void *data)
 {
     me_session_t *se = (me_session_t *)data;
     mln_http_t *http = se->req;
@@ -330,10 +330,10 @@ static void mln_recv(mln_event_t *ev, int fd, void *data)
                 if (rc == M_HTTP_RET_OK) {
                     return;
                 } else if (rc == M_HTTP_RET_DONE) {
-                    mln_send_response(ev, fd, se);
+                    me_send_response(ev, fd, se);
                 } else {
                     mln_log(error, "Http parse error. error_code:%u\n", mln_http_error_get(http));
-                    mln_quit(ev, fd, data);
+                    me_quit(ev, fd, data);
                     return;
                 }
             }
@@ -349,16 +349,16 @@ static void mln_recv(mln_event_t *ev, int fd, void *data)
                     mln_log(error, "Http parse error. error_code:%u\n", mln_http_error_get(http));
                 }
             }
-            mln_quit(ev, fd, data);
+            me_quit(ev, fd, data);
             return;
         } else if (ret == M_C_ERROR) {
-            mln_quit(ev, fd, data);
+            me_quit(ev, fd, data);
             return;
         }
     }
 }
 
-static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_chain_t **nil)
+static int me_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_chain_t **nil)
 {
     mln_string_t cl_key = mln_string("Content-Length");
     mln_string_t *cl_val;
@@ -391,7 +391,7 @@ static int mln_http_recv_body_handler(mln_http_t *http, mln_chain_t **in, mln_ch
     return M_HTTP_RET_DONE;
 }
 
-static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail)
+static int me_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln_chain_t **body_tail)
 {
     mln_u8ptr_t buf;
     mln_alloc_t *pool = mln_http_pool_get(http);
@@ -435,7 +435,7 @@ static int mln_pack_response_body(mln_http_t *http, mln_chain_t **body_head, mln
     return M_HTTP_RET_DONE;
 }
 
-static void mln_send(mln_event_t *ev, int fd, void *data)
+static void me_send(mln_event_t *ev, int fd, void *data)
 {
     me_session_t *se = (me_session_t *)data;
     mln_http_t *http = se->resp;
@@ -446,13 +446,13 @@ static void mln_send(mln_event_t *ev, int fd, void *data)
     while ((c = mln_tcp_conn_head(connection, M_C_SEND)) != NULL) {
         ret = mln_tcp_conn_send(connection);
         if (ret == M_C_FINISH) {
-            mln_quit(ev, fd, data);
+            me_quit(ev, fd, data);
             break;
         } else if (ret == M_C_NOTYET) {
             mln_chain_pool_release_all(mln_tcp_conn_remove(connection, M_C_SENT));
             return;
         } else if (ret == M_C_ERROR) {
-            mln_quit(ev, fd, data);
+            me_quit(ev, fd, data);
             return;
         } else {
             mln_log(error, "Shouldn't be here.\n");
@@ -461,7 +461,7 @@ static void mln_send(mln_event_t *ev, int fd, void *data)
     }
 }
 
-static int mln_global_init(void)
+static int me_global_init(void)
 {
     mln_conf_t *cf;
     mln_conf_domain_t *cd;
@@ -476,7 +476,7 @@ static int mln_global_init(void)
             return -1;
         }
     }
-    if (cc->update(cc, &framework_conf, 1) < 0) {
+    if (cc->update(cc, &me_framework_conf, 1) < 0) {
         mln_log(error, "update configuration command 'framework' failed.\n");
         return -1;
     }
@@ -488,7 +488,7 @@ static int mln_global_init(void)
             return -1;
         }
     }
-    if (cc->update(cc, &workerproc_conf, 1) < 0) {
+    if (cc->update(cc, &me_workerproc_conf, 1) < 0) {
         mln_log(error, "update configuration command 'worker_proc' failed.\n");
         return -1;
     }
@@ -496,47 +496,47 @@ static int mln_global_init(void)
     return 0;
 }
 
-static void mln_parse_args(int argc, char *argv[])
+static void me_parse_args(int argc, char *argv[])
 {
     int i;
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-a")) {
             if (++i >= argc) goto err;
-            listen_ip_ptr = argv[i];
+            me_listen_ip_ptr = argv[i];
         } else if (!strcmp(argv[i], "-p")) {
             if (++i >= argc) goto err;
-            listen_port = atoi(argv[i]);
-            if (listen_port <= 0) goto err;
+            me_listen_port = atoi(argv[i]);
+            if (me_listen_port <= 0) goto err;
         } else if (!strcmp(argv[i], "-w")) {
             if (++i >= argc) goto err;
-            workerproc_conf.val.i = atoi(argv[i]);
-            if (workerproc_conf.val.i <= 0) goto err;
+            me_workerproc_conf.val.i = atoi(argv[i]);
+            if (me_workerproc_conf.val.i <= 0) goto err;
         } else if (!strcmp(argv[i], "-d")) {
             if (++i >= argc) goto err;
-            mln_string_set(&base_dir_in_param, argv[i]);
-            base_dir_ptr = &base_dir_in_param;
+            mln_string_set(&me_entry_base_dir_in_param, argv[i]);
+            me_entry_base_dir_ptr = &me_entry_base_dir_in_param;
         } else if (!strcmp(argv[i], "-e")) {
             if (++i >= argc) goto err;
-            mln_string_set(&file_name_in_param, argv[i]);
-            file_name_ptr = &file_name_in_param;
+            mln_string_set(&me_entry_file_name_in_param, argv[i]);
+            me_entry_file_name_ptr = &me_entry_file_name_in_param;
         } else if (!strcmp(argv[i], "-v")) {
             fprintf(stdout, "0.1.0\n");
             exit(0);
         } else if (!strcmp(argv[i], "-D")) {
-            enable_chroot_flag = 1;
+            me_enable_chroot_flag = 1;
         } else if (!strcmp(argv[i], "-h")) {
-            mln_help(argv[0]);
+            me_help(argv[0]);
         } else {
 err:
             fprintf(stderr, "Invalid parameter [%s].\n", argv[i]);
-            mln_help(argv[0]);
+            me_help(argv[0]);
         }
     }
 
-    fprintf(stdout, "Listen: %s:%u\nBase directory: %s\n", (char *)listen_ip_ptr, listen_port, (char *)(base_dir_ptr->data));
+    fprintf(stdout, "Listen: %s:%u\nBase directory: %s\n", (char *)me_listen_ip_ptr, me_listen_port, (char *)(me_entry_base_dir_ptr->data));
 }
 
-static void mln_help(char *name)
+static void me_help(char *name)
 {
     fprintf(stdout, "%s OPTIONS\n", name);
     fprintf(stdout, "\t-a Listen address, 0.0.0.0 as default\n");
@@ -554,10 +554,10 @@ static inline int me_builtin_module_funcs_load(me_func_t *f)
 {
     mln_rbtree_node_t *rn;
     for (; f->func != NULL; ++f) {
-        if ((rn = mln_rbtree_node_new(funcs, f)) == NULL)
+        if ((rn = mln_rbtree_node_new(me_funcs, f)) == NULL)
             return -1;
 
-        mln_rbtree_insert(funcs, rn);
+        mln_rbtree_insert(me_funcs, rn);
     }
     return 0;
 }
@@ -571,7 +571,7 @@ static int me_builtin_funcs_load(void)
     rbattr.pool_free = NULL;
     rbattr.cmp = (rbtree_cmp)me_func_cmp;
     rbattr.data_free = NULL;
-    if ((funcs = mln_rbtree_new(&rbattr)) == NULL) {
+    if ((me_funcs = mln_rbtree_new(&rbattr)) == NULL) {
         return -1;
     }
 
@@ -586,7 +586,7 @@ int main(int argc, char *argv[])
 {
     struct mln_framework_attr attr;
 
-    mln_parse_args(argc, argv);
+    me_parse_args(argc, argv);
 
     if (me_builtin_funcs_load() < 0) {
         mln_log(error, "Load built-in functions failed.\n");
@@ -595,10 +595,10 @@ int main(int argc, char *argv[])
 
     attr.argc = 0;
     attr.argv = NULL;
-    attr.global_init = mln_global_init;
+    attr.global_init = me_global_init;
     attr.main_thread = NULL;
     attr.master_process = NULL;
-    attr.worker_process = mln_worker_process;
+    attr.worker_process = me_worker_process;
     return mln_framework_init(&attr);
 }
 
