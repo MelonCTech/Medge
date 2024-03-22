@@ -7,7 +7,7 @@
 #include "mln_expr.h"
 
 typedef struct me_session_s me_session_t;
-typedef mln_expr_val_t *(*me_func_impl_t)(me_session_t *, mln_string_t *, mln_array_t *);
+typedef mln_expr_val_t *(*me_func_impl_t)(me_session_t *, mln_array_t *);
 
 struct me_session_s {
     mln_http_t     *req;
@@ -29,5 +29,7 @@ extern me_symbol_t *me_symbol_new(mln_string_t *name, mln_expr_val_t *val);
 extern void me_symbol_free(me_symbol_t *sym);
 
 extern me_func_t *me_request_export(void);
+extern me_func_t *me_response_export(void);
+extern me_func_t *me_file_export(void);
 
 #endif

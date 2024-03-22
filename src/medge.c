@@ -276,7 +276,7 @@ static mln_expr_val_t *mln_expr_callback(mln_string_t *name, int is_func, mln_ar
         return mln_expr_val_new(mln_expr_type_null, NULL, NULL);
     }
     f = (me_func_t *)mln_rbtree_node_data_get(rn);
-    return f->func(se, name, args);
+    return f->func(se, args);
 }
 
 static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
@@ -288,6 +288,7 @@ static void mln_send_response(mln_event_t *ev, int fd, me_session_t *se)
     mln_chain_t *head = NULL, *tail = NULL;
     mln_tcp_conn_t *conn = mln_http_connection_get(se->resp);
 
+    mln_http_version_set(se->resp, mln_http_version_get(se->req));
     n = snprintf(filepath, sizeof(filepath) - 1, "%s/%s", (char *)(base_dir_ptr->data), (char *)(file_name_ptr->data));
     filepath[n] = 0;
     mln_string_nset(&path, filepath, n);
@@ -549,11 +550,21 @@ static void mln_help(char *name)
     exit(0);
 }
 
+static inline int me_builtin_module_funcs_load(me_func_t *f)
+{
+    mln_rbtree_node_t *rn;
+    for (; f->func != NULL; ++f) {
+        if ((rn = mln_rbtree_node_new(funcs, f)) == NULL)
+            return -1;
+
+        mln_rbtree_insert(funcs, rn);
+    }
+    return 0;
+}
+
 static int me_builtin_funcs_load(void)
 {
-    me_func_t *f;
     struct mln_rbtree_attr rbattr;
-    mln_rbtree_node_t *rn;
 
     rbattr.pool = NULL;
     rbattr.pool_alloc = NULL;
@@ -564,12 +575,9 @@ static int me_builtin_funcs_load(void)
         return -1;
     }
 
-    for (f = me_request_export(); f->func != NULL; ++f) {
-        if ((rn = mln_rbtree_node_new(funcs, f)) == NULL)
-            return -1;
-
-        mln_rbtree_insert(funcs, rn);
-    }
+    if (me_builtin_module_funcs_load(me_request_export()) < 0) return -1;
+    if (me_builtin_module_funcs_load(me_response_export()) < 0) return -1;
+    if (me_builtin_module_funcs_load(me_file_export()) < 0) return -1;
 
     return 0;
 }
