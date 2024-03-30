@@ -578,6 +578,7 @@ static int me_builtin_funcs_load(void)
     if (me_builtin_module_funcs_load(me_request_export()) < 0) return -1;
     if (me_builtin_module_funcs_load(me_response_export()) < 0) return -1;
     if (me_builtin_module_funcs_load(me_file_export()) < 0) return -1;
+    if (me_builtin_module_funcs_load(me_string_export()) < 0) return -1;
 
     return 0;
 }

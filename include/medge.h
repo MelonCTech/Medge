@@ -31,5 +31,6 @@ extern void me_symbol_free(me_symbol_t *sym);
 extern me_func_t *me_request_export(void);
 extern me_func_t *me_response_export(void);
 extern me_func_t *me_file_export(void);
+extern me_func_t *me_string_export(void);
 
 #endif
