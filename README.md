@@ -25,16 +25,6 @@ $ make install
 
 
 
-### Docker
-
-You can pull the docker image.
-
-```shell
-docker pull melonc/medge
-```
-
-
-
 ### Usage
 
 ```
